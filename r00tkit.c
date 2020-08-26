@@ -117,7 +117,6 @@ void unhooking_syscall(void)
 
 static int __init start(void)
 {
-	protect_memory();
 	table = get_syscall_table_bf();
 
 	printk("Module has been loaded!\n");
